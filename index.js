@@ -21,16 +21,18 @@ const GET_QUOTE_INTERVAL = 1000;
 const SAMPLE_SIZE = 20;
 const ORDER_CHECK_INTERVAL = 5000;
 const ORDER_QUANTITY = 100;
+const SAMPLE_TRUNCATE = 10;
 
 
 var log = setInterval(getQuote, GET_QUOTE_INTERVAL);
 
 Array.observe(quotes, function() {
     var orderId;
+
     if (quotes.length === SAMPLE_SIZE) {
         // algorithm used to set buy price
         var price = parseInt((_.minBy(quotes, 'ask').ask + _.minBy(quotes, 'bid').bid) / 2, 10);
-        quotes.splice(0, 10);
+        quotes.splice(0, SAMPLE_TRUNCATE);
 
 
         /**
@@ -50,12 +52,6 @@ Array.observe(quotes, function() {
             .then(function(resp) {
                 return new Promise(function(resolve, reject) {
 
-                    function cleanupOnCompletion() {
-                        stopLog();
-                        console.log('order completed', resp);
-                        resolve();
-                    }
-
                     if (!resp.open) {
                         cleanupOnCompletion();
                     } else {
@@ -63,21 +59,24 @@ Array.observe(quotes, function() {
                         setTimeout(function() {
                             //Check status of order is still open
                             account.getOrderStatus(stock, orderId).then(function(resp) {
-                                console.log(['order status open :', resp.open]);
-                                if (resp.open) {
-                                    //Cancel the order
-                                    account.cancelOrder(stock, orderId)
-                                        .then(function(response) {
-                                            console.log('order cancelled');
-                                            resolve();
-                                        })
-                                        .catch(function(err) {
-                                            console.log(err, ' ERROR');
-                                            reject();
-                                        });
 
+                                if (resp.open) {
+
+                                    account.cancelOrder(stock, orderId)
+                                        .then(cancelSuccessHandler)
+                                        .catch(errorHandler);
                                 } else {
                                     cleanupOnCompletion();
+                                }
+
+                                function cancelSuccessHandler(response) {
+                                    console.log('order cancelled');
+                                    resolve();
+                                }
+
+                                function errorHandler(err) {
+                                    console.log(err, ' ERROR');
+                                    reject(err);
                                 }
 
                             });
@@ -85,6 +84,12 @@ Array.observe(quotes, function() {
                         }, ORDER_CHECK_INTERVAL);
 
 
+                    }
+
+                    function cleanupOnCompletion() {
+                        stopLog();
+                        resolve();
+                        console.log('order completed', resp);
                     }
                 });
 
